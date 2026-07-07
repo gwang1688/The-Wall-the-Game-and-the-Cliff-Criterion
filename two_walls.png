@@ -1,0 +1,890 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage[hidelinks]{hyperref}
+\usepackage{xcolor}
+
+\newtheorem{proposition}{Proposition}
+\newtheorem{corollary}{Corollary}
+\newtheorem{remark}{Remark}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\Smon}{S_{\mathrm{mon}}}
+\newcommand{\dmon}{d_{\mathrm{mon}}}
+\newcommand{\knull}{k_{\mathrm{null}}}
+\newcommand{\lmon}{\lambda_{\mathrm{mon}}}
+
+\title{\bf The Monitoring Wall and the Monitorability Tax:\\
+a sharp phase transition for the model--vs--monitor game}
+\author{Guangyu Wang\\ \texttt{billgywang@gmail.com}\\[4pt]
+\small (working draft --- for internal iteration)}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Chain-of-thought (CoT) monitoring is a leading oversight tool, and an empirically fragile one: under
+optimization pressure a model learns \emph{obfuscated} reward hacking that scrubs intent from the
+trace. We show that whether monitoring survives this pressure is governed by a sharp, computable
+\emph{wall}---whose \emph{height} is the value of a game between a model hiding a hack and a monitor
+choosing where to look. \emph{(i) Mechanism (unconditional):} against a fixed monitor the extractable
+signal collapses at a critical pressure $\rho^\star=1-\sqrt{\alpha/(n/d)}/s^2$, with a matching
+converse---no test of the projected traces detects the hack \emph{consistently}---so monitoring fails as a \emph{cliff},
+not a slope. \emph{(ii) Game value (main new result):} when the model chooses its hiding spectrum,
+the wall becomes a critical reward $V^\star$; spreading the hack over a $K$-dimensional task subspace
+buys an advantage a sophisticated monitor claws back to $\sqrt K$, and that \emph{saturates} once the
+hack's total variance gives it away. \emph{(iii) Design principle:} the footprint of reward hacking
+is \emph{irreducible}---relocatable into the monitor's null channel but not erasable---so an
+\emph{adaptive} monitor that aims at the reward structure \emph{collapses} the wall when that structure is public and coverable (\S\ref{sec:results}, B1--B4). Robust
+monitoring is about \emph{where you look}, not a better classifier. The wall and its converse are
+unconditional; the game value is proved under stated low-rank, fixed-resolution assumptions; the
+saturation and collapse laws are extensions, with one covering regime---characterized in the core as a slope. We package the theory as
+a monitor-side \emph{Meter} that reads the current wall height.
+\end{abstract}
+
+\section{Introduction}
+As models are trained with reinforcement on outcomes they can verify---passing unit tests,
+satisfying a checker, maximizing a reward model---and are deployed as agents acting over long
+horizons, human review of every action becomes infeasible. A leading fallback is
+\emph{monitoring} the model's own externalized reasoning: read the chain of thought (CoT) or
+execution trace and flag any trace whose \emph{intent} looks unsafe, even when the final output
+does not. A growing number of safety cases lean on this legibility of intent, precisely because
+it promises to catch misbehavior that output-level checks miss.
+
+The premise is that intent stays legible. It does not, once the trace itself comes under
+optimization pressure. A coding agent rewarded for green tests can learn to special-case the
+tests while emitting a clean, plausible rationale; a model penalized whenever its CoT reveals a
+shortcut learns to take the shortcut silently. Applying optimization pressure to the CoT
+empirically elicits \emph{obfuscated} hacking: the rewarded behavior is retained while the
+tell-tale signal is scrubbed, so the monitor's readings can look \emph{healthier} even as the
+underlying behavior gets worse~\cite{baker,korbak,spillover}. Monitoring therefore has a failure
+mode that is invisible from the monitor's own dashboard---the most dangerous kind, because the
+warning sign is the thing being erased.
+
+What is the \emph{shape} of this degradation? Three qualitatively different answers coexist in
+the literature, with opposite operational consequences. It could be \emph{gradual}---more
+pressure, proportionally less signal---in which case monitoring buys a graceful, tunable safety
+margin one can trade off. It could be a \emph{cliff}---signal is fine until a threshold, then
+vanishes---in which case a monitor reading healthy today can be one optimization step from blind,
+and the AUC one watches is not a safety margin at all. And it could be
+\emph{unavoidable}---beyond some capability gap, no achievable monitor helps and the only honest
+move is to stop optimizing. The existing formal tools do not adjudicate between these: an
+information-theoretic \emph{metric} $I(O;Z\mid X)$ between trace $O$ and intent $Z$~\cite{cotmi},
+or a decision-theoretic \emph{gap} $1-\mathrm{TV}$~\cite{stegodt}, quantify how much signal
+remains at a given operating point but do not locate a threshold; steganography shows
+undetectable channels \emph{can} exist~\cite{dewitt,motwani}, but not \emph{when optimization is
+forced across} into them, nor the price of staying out.
+
+\paragraph{The picture.} Our results replace the fatalistic reading (``monitoring is doomed to
+fail at a cliff'') with a sharper and more actionable one. Reward hacking leaves a
+\emph{statistical footprint} in the reward-relevant subspace of the trace; the model can
+\emph{relocate} that footprint into directions the monitor does not resolve---its null
+channel---but, because the footprint \emph{is} the reward-directed variance, it cannot
+\emph{erase} it while still collecting the reward. Whether monitoring survives optimization pressure
+is therefore not a fixed fact but the value of a game over \emph{where the monitor looks}, set by
+three levers: the monitor's resolution $\alpha$, its data budget $n/d$, and---decisively---whether
+it can \emph{aim} at the reward structure. The wall is real and sharp when the monitor is fixed or
+blind; it rises, and can collapse, as the monitor gains these.
+
+\paragraph{Contribution.} We characterize this game in three acts.
+
+\emph{Act~I --- the mechanism: a sharp, information-theoretic wall, unconditional (\S\ref{sec:results}).}
+These results assume nothing about the model's hiding strategy.
+\begin{itemize}
+\item \textbf{The monitoring wall (Prop.~\ref{prop:selfwall}).} In a proportional high-dimensional
+limit, the monitor's recovery \emph{overlap} with the hack direction is strictly positive below a
+critical pressure $\rho^\star$ and \emph{exactly zero} above it, with the closed form
+$\rho^\star = 1 - \sqrt{\alpha/(n/d)}/s^2$ set purely by geometry (resolution $\alpha$, data budget
+$n/d$, blatancy $s$). It is a cliff, not a slope, and it sharpens with dimension. (The ambient
+dimension cancels in $\rho^\star$; on the low-rank latent spaces of real models the effective-rank
+form of \S\ref{sec:results} \emph{raises} the wall, so the bound strengthens rather than fails.)
+\item \textbf{A basic limit, not one estimator (Prop.~\ref{prop:selfwall}).} A matching Le~Cam
+second-moment converse: below the wall the clean and hack laws are contiguous, so \emph{no} test of
+the projected traces detects the hack consistently. The detection threshold coincides with the
+estimation threshold; the wall is information-theoretic.
+\item \textbf{The price of legibility (Props.~\ref{sec:results},~\ref{sec:results}).} Staying above a
+detection target forces a rigorous floor on retained visible energy that \emph{diverges} with the
+capability gap; under a positive-slope assumption the task tax diverges with it. At $\rho^\star$ the
+wall, the diverging price, and the hack's disappearance into the null channel coincide---one order
+parameter, three readouts.
+\end{itemize}
+
+\emph{Act~II --- the wall's height is a game value; this is the paper's central new result
+(\S\ref{sec:results}).}
+\begin{itemize}
+\item \textbf{Endogenous hiding (\S\ref{sec:results}).} When the model chooses its hiding
+spectrum, the wall becomes a critical reward $V^\star$: spreading the hack over a $K$-dimensional
+task subspace lets it hide reward up to $gK\sqrt\gamma$ against a peak detector, $g\sqrt{K\gamma}$
+against the optimal one---task rank is the hider's resource, and a sophisticated monitor claws back
+exactly $\sqrt K$. We prove this under explicit low-rank, fixed-resolution, orthogonal-spike,
+sub-extensive assumptions (A1--A4); $K=1$ recovers Act~I.
+\end{itemize}
+
+\emph{Extensions --- charting the game's boundary, and the design law (\S\ref{sec:results}).} The next
+two results relax assumptions A3 and A2 and are stated at the weaker rigor their regimes allow (a
+scaling bound and a sandwich); they are what make the picture \emph{prescriptive}.
+\begin{itemize}
+\item \textbf{Spreading self-defeats (\S\ref{sec:results}; scaling).} The $\sqrt K$ advantage
+\emph{saturates}: an extensive hack raises the trace's total variance and is given away by it,
+capping the hideable reward at $\Theta(g/\sqrt{\alpha\,n/d})$ regardless of $K$.
+\item \textbf{Adaptive resolution collapses the wall (\S\ref{sec:results}).} Because the footprint
+is irreducible, a monitor that \emph{aims} at the (public, coverable) task subspace and measures its
+total variance defeats \emph{all} spreading (assumptions B1--B4)---with enough data $V^\star\to0$. The
+wall protects the hider only against a monitor that cannot aim, cannot cover the task
+($K_{\mathrm{pool}}{>}\alpha d$), or is data-starved, which yields concrete design principles
+for robust monitors (Box~1) and leaves one regime---the covering game, when the task outgrows the
+monitor's resolution---which the core characterizes as a \emph{slope} (detection linear in the coverage
+fraction $\alpha/\kappa$), with the exact covering law open.
+\end{itemize}
+
+\noindent\emph{Rigor spine.} The wall and its converse (Act~I) are unconditional; the game value
+(Act~II) is a theorem under A1--A4; the saturation and collapse laws are extensions that map the
+boundary and yield the design law, leaving the exact extensive value and the adaptive covering
+regime as the program's open problems.
+
+The sharpness throughout is the BBP spiked-covariance transition~\cite{bbp,bgn} (a mean-shift model
+would be smooth); we give the CGMT fixed point~\cite{cgmt} behind it and a monitor-side
+\emph{Meter} that estimates the current wall height from trace statistics.
+
+\paragraph{What this is, and is not.} This is a \emph{characterization} paper: the load-bearing
+results---a phase transition, an information-theoretic converse, and a game value---are self-contained
+theory. We validate the \emph{mechanism} in controlled simulation (a Gaussian channel, a routing surrogate, and
+a gradient-checked token transformer trained by REINFORCE). We stress the scope: \emph{validation on
+real CoT monitors requires Stage~B}---a real reasoning model under a real LLM monitor
+(\S\ref{sec:stages})---which our simulations do not substitute for; they establish the mechanism and
+its predictions, and Stage~B is where those predictions are tested and can fail. ``Hack'' denotes any behavior that raises reward while an
+oversight signal is meant to catch it. We do not claim obfuscation is \emph{possible} (known
+\cite{dewitt,motwani}) or that finite oversight distorts objectives (known~\cite{survey}); we
+characterize \emph{when} optimization must reach the null channel, \emph{what} staying legible
+costs, and \emph{what a monitor must do} to keep the wall high.
+
+
+
+\paragraph{Structure and rigor.} The paper reads as three acts---a sharp wall with a converse (Act~I,
+unconditional), the wall as a game value (Act~II, under stated assumptions), and its saturation and
+adaptive collapse (Act~III, a design law). All the underlying theorems, with their rigor tiers
+(proved / conditional / scaling), are established and tabulated in the companion core~\cite{core}; here
+we recall them (\S\ref{sec:results}) and put them to work on chain-of-thought monitoring, with a
+self-contained restatement of the wall and converse in Appendix~\ref{app:selfcontained}.
+
+\section{Related work}\label{sec:related}
+Prior work supplies, separately, the three ingredients this paper combines: evidence that the
+phenomenon is real, the right measures for it, and the high-dimensional machinery to make those
+measures sharp. None combines them into a threshold with a price.
+
+\paragraph{The phenomenon is real, and empirical.} Applying optimization pressure to the CoT
+elicits obfuscated hacking whose intent disappears from the trace~\cite{baker}; monitorability and
+its ``fragile window'' are named, but left informal, in~\cite{korbak}; even output-only supervision
+spills over and pushes toward an obfuscated CoT~\cite{spillover}; and surveys frame reward hacking
+as the structural consequence of compressing a high-dimensional objective into a low-dimensional
+proxy~\cite{survey}. These establish \emph{that} monitoring degrades under pressure---not
+\emph{when} it must, nor how steeply.
+
+\paragraph{The right measures, at a fixed operating point.} CoT monitorability has been cast as
+the mutual information $I(O;Z\mid X)$ between trace and intent~\cite{cotmi} and as a
+decision-theoretic steganographic gap $1-\mathrm{TV}$~\cite{stegodt}; both quantify how much signal
+survives at a given pressure, and both explicitly flag the missing minimal-detectable-effect /
+threshold analysis. Steganography shows perfectly secure channels \emph{can} exist~\cite{dewitt},
+and secret collusion strengthens with capability~\cite{motwani}. These give existence and an
+empirical scaling trend; we supply the threshold that separates the regimes and turn the trend
+into a divergence.
+
+\paragraph{The machinery.} Our sharpness is the spiked-covariance phase transition of
+Baik--Ben~Arous--P\'ech\'e~\cite{bbp} with the eigenvector-overlap law of~\cite{bgn,paul}; the
+constrained (tax) analysis uses the Convex Gaussian Min-max Theorem~\cite{cgmt}. Transplanting this
+mature high-dimensional-statistics threshold into the monitoring problem---and reading its value
+function as a price---is the contribution; the random-matrix results themselves are standard.
+
+\paragraph{Alternative monitoring models.} It helps to place our covariance-spike model against the
+alternatives it is often confused with. \emph{Mean-shift / LDA detection}: if the hack were a
+first-order (mean) signature, detection would be a linear-discriminant problem with a smooth,
+thresholdless $\mathrm{erf}$ power curve---no wall; this is the ``clumsy hack'' regime, and modeling
+obfuscation as second order is what yields the sharp $\rho^\star$. \emph{Classifier calibration}: a
+trained monitor's accuracy or calibration on the visible features is an operating-point summary
+(and, if linear, the LDA case); it reports how well one detects \emph{now}, not the pressure at
+which detection becomes impossible. \emph{Mutual-information metrics} $I(O;Z\mid X)$~\cite{cotmi}:
+likewise quantify residual signal at a fixed point and, as their authors note, lack a
+minimal-detectable-effect analysis; our $\rho^\star$ is exactly that missing threshold, and the
+converse turns ``$I$ is small'' into ``no test succeeds.'' \emph{Steganographic channels}
+($1-\mathrm{TV}$, secure coding)~\cite{stegodt,dewitt}: establish that undetectable channels can
+exist; we add \emph{when} optimization is forced into one and \emph{what} staying out costs. The
+alternatives are operating-point or existence statements; ours is a threshold with a price.
+
+\section{Setup: the toy channel}\label{sec:setup}
+We distil the model--vs--monitor interaction to its smallest faithful form: recovering a planted
+signal from a partially observed, noisy channel. A trace is a high-dimensional object
+$O\in\R^{d}$---think of the features a monitor could in principle read off a CoT. A benign trace
+is unstructured noise; a hack leaves a \emph{statistical footprint}, an extra structured
+component along some hidden direction $u$. Crucially the footprint is \emph{second order}: an
+obfuscated hack does not shift the \emph{average} trace (that would be trivially visible), it
+perturbs the trace's \emph{covariance} along $u$. Formally, a hack bit
+$Z\in\{\text{clean},\text{hack}\}$ injects an anisotropic variance spike of energy $s^2$ along a
+unit direction $u\in\R^{d}$:
+\begin{equation}
+\text{hack:}\ O=\xi+s\,\eta\,u,\quad \eta\sim\mathcal N(0,1),\ \xi\sim\mathcal N(0,I_d);
+\qquad \text{clean:}\ O=\xi;\qquad \mathrm{Cov}_{\text{hack}}=I_d+s^2 uu^\top .
+\end{equation}
+The monitor resolves only a subspace $\Smon$ of dimension $\dmon=\alpha d$; it observes
+$P_{\mathrm{mon}}O$ and must recover $u$ from $n$ samples. ($P_{\mathrm{mon}}$ is a literal
+projection for a linear probe; for an LLM judge it is a \emph{local, empirical sensitivity
+subspace}---the directions whose perturbation flips the verdict---and $\alpha,\rho,\knull$ become
+effective quantities read off that map; see \S\ref{sec:meter} and Table~\ref{tab:nonlin}.) Under
+\emph{optimization pressure}
+$\rho\in[0,1]$ the model splits the spike: a fraction $(1-\rho)$ of the energy stays in
+$\Smon$ (``visible'') and a fraction $\rho$ is steered into the \emph{null channel}
+$\Smon^{\perp}$ of dimension $\knull=(1-\alpha)d$. Thus $\rho$ is exactly the fraction of hack
+energy hidden from the monitor. The visible spike is $s^2(1-\rho)$; the monitor's sample
+covariance of $P_{\mathrm{mon}}O$ has a Marchenko--Pastur bulk edge at $\sqrt{\dmon/n}$.
+
+Four numbers govern the game, each with an operational reading. The \emph{blatancy} $s^2$ is how
+loud the hack's footprint is relative to trace noise. The \emph{monitor resolution}
+$\alpha=\dmon/d$ is the fraction of the trace's degrees of freedom the monitor can actually
+read; a weak or coarse monitor has small $\alpha$. The \emph{data budget} $n/d$ is how many
+independent traces the monitor aggregates per trace dimension---its statistical power. The
+\emph{optimization pressure} $\rho$ is the only quantity the training loop moves: it is the
+fraction of the footprint the model has learned to route into the $\knull=(1-\alpha)d$ directions
+the monitor does not read---the null channel. ``A capable model outgrowing a weak monitor'' is the
+corner $\rho\to1$, $\alpha$ small, $n/d$ small.
+
+\begin{table}[h]\centering\small
+\begin{tabular}{@{}l l p{7.2cm}@{}}
+\toprule
+\multicolumn{1}{c}{\textbf{toy symbol}} & \multicolumn{1}{c}{\textbf{meaning}} & \multicolumn{1}{c}{\textbf{real CoT-monitoring counterpart}} \\ \midrule
+$O\in\R^d$ & monitored trace & CoT tokens / model activations as a feature vector \\
+$\alpha=\dmon/d$ & monitor resolution & fraction of trace d.o.f.\ the monitor reads (probe rank, judge bandwidth) \\
+$n/d$ & monitor data budget & labeled traces per trace dimension (probe/judge statistical power) \\
+$s^2$ & hack blatancy & strength of the hack's statistical footprint (SNR of the tell) \\
+$\rho$ & optimization pressure & fraction of the footprint routed into the monitor's null space \\
+$\knull=(1-\alpha)d$ & hidable subspace & trace directions the monitor cannot resolve \\
+\bottomrule
+\end{tabular}
+\caption{Mapping between the toy channel and real CoT/trace monitoring. Estimating the right-hand
+column on a deployed monitor is the object of Stages~A.5--B; the Meter (\S\ref{sec:meter})
+estimates $\alpha$, $s$, and $\knull$ from trace statistics.}
+\end{table}
+
+\begin{remark}[Why a covariance spike, not a mean shift]
+Obfuscation is exactly the move from a first-order to a second-order signature: a hack that
+shifted the \emph{mean} trace would be caught by the crudest monitor, so under pressure the
+surviving hacks are those that leave the average trace untouched and perturb only its
+\emph{shape}. Recovery is then a spiked-\emph{covariance} problem, which carries a genuine
+Baik--Ben~Arous--P\'ech\'e threshold; a first-order (mean-shift, LDA) model would instead give a
+smooth, thresholdless $\mathrm{erf}$ curve and miss the cliff entirely. The sharpness we report
+is thus a consequence of modeling obfuscation honestly, not an artifact of the toy.
+\end{remark}
+
+Write $\gamma \equiv \dmon/n = \alpha/(n/d)$ for the effective aspect ratio and
+$\beta \equiv s^2(1-\rho)$ for the visible spike strength. Recovery of $u$ from
+$P_{\mathrm{mon}}O$ is the planted-vector / spiked-covariance problem; its order parameter is
+the overlap $\langle \hat u, u\rangle^2$.
+
+\section{Results: the monitoring channel is an instance of the core}\label{sec:results}
+The toy channel of \S\ref{sec:setup} \emph{is} the partial-channel model of the companion theory
+paper~\cite{core}, under the reading resolution $=$ monitor bandwidth, budget $=$ labeled traces,
+planted signal $=$ obfuscated hack, null space $=$ the monitor's blind directions. All the theorems
+below are proved there; we recall them in monitoring notation and use them, and
+Appendix~\ref{app:selfcontained} restates the load-bearing wall and converse self-contained so this
+paper stands if the core is in review. Throughout, $\gamma=\dmon/n=\alpha/(n/d)$ and
+$\beta=s^2(1-\rho)$.
+
+\paragraph{The wall and its converse (core Props.~1--2).} In the proportional regime the recovery
+overlap $\langle\hat u,u\rangle^2$ is positive for $\rho<\rho^\star$ and zero for $\rho>\rho^\star$,
+with
+\begin{equation}\label{eq:rhostar}
+\rho^\star=\Big[\,1-\frac{\sqrt{\dmon/n}}{s^2}\,\Big]_0^1=\Big[\,1-\frac{\sqrt{\alpha/(n/d)}}{s^2}\,\Big]_0^1,
+\end{equation}
+a Baik--Ben~Arous--P\'ech\'e cliff (overlap $\tfrac{1-\gamma/\beta^2}{1+\gamma/\beta}$ above the edge,
+$0$ below) that sharpens as $d^{-1/3}$; and a Le~Cam converse makes clean and hacked traces contiguous
+above $\rho^\star$, so \emph{no} test of the projected traces detects the hack consistently
+(``a smarter classifier'' cannot help). Operationally: a monitor of bandwidth $\alpha$ and budget
+$n/d$ goes blind once the model routes a fraction $\rho^\star$ of the hack's footprint into the null
+channel---and clipping means a monitor with $s^2\le\sqrt\gamma$ is blind from the start.
+
+\paragraph{Effective rank (core Cor.~1).} What sets the wall is the \emph{stable rank}
+$r_{\mathrm{eff}}=\operatorname{tr}\Sigma_{\mathrm{mon}}/\|\Sigma_{\mathrm{mon}}\|\le\dmon$ of the
+resolved covariance ($\gamma_{\mathrm{eff}}=r_{\mathrm{eff}}/n$), exact for a flat/whitened channel and
+a deformed-MP proxy otherwise; low-rank activations \emph{lower} the edge and \emph{raise} $\rho^\star$,
+so the meter reads $r_{\mathrm{eff}}$ off the whitening step rather than the nominal $\dmon$.
+
+\paragraph{The price (core Prop.~3).} To keep detection AUC$\,\ge\tau$ the model must retain a
+resolved-energy fraction $1-\rho_{\max}\ge\beta(\tau)/s^2\ge\sqrt\gamma/s^2$, a floor that \emph{grows}
+as the capability gap widens ($n/d\to0$); since the fraction is $\le1$ this is a feasibility ceiling
+(once $\beta(\tau)>s^2$, target-level monitoring is infeasible). Under a positive task-loss slope
+$\kappa$ this is the monitorability tax $\lmon\ge\kappa\sqrt\gamma/s^2$; $\kappa$ is task-specific and
+calibrated in Stage~A.5.
+
+\paragraph{The wall is a game value (core Props.~5--8).} When the model chooses its hiding spectrum
+and the monitor aims, the wall becomes a critical hack value: spreading over a $K$-dimensional task
+subspace buys a factor $K$ against a peak monitor and $\sqrt K$ against an optimal one
+($V^\star_{\mathrm{spec}}=gK\sqrt\gamma$, $V^\star_{\mathrm{opt}}=g\sqrt{K\gamma}$, under the core's
+A1--A4). A trivial aggregate statistic caps the hideable value at the single-direction scale
+$\Theta(g\sqrt\gamma)$, \emph{independent of $K$} (core Prop.~7), so spreading self-defeats; and an
+\emph{adaptive} monitor that aims at the (public) reward structure and measures its total variance
+collapses the wall, $V^\star_{\mathrm{adapt}}=\Theta(g\sqrt{K_{\mathrm{pool}}/n})\to0$ (core Prop.~8,
+B1--B4). The safety reading: robust monitoring is about \emph{where you look}, not a better
+classifier---raw bandwidth without aim only inflates the noise floor (core Rem.~on the $\sqrt\alpha$
+monotonicity), while aiming collapses it. The one remaining regime is the covering game
+$K_{\mathrm{pool}}>\dmon$ (task richer than bandwidth), which the core characterizes as a \emph{slope}
+(detection linear in the coverage fraction), not a warning-free collapse; its exact law is open.
+
+\paragraph{Why a cliff (core Thm.~1).} The sharpness is specific to the \emph{second-order}
+(covariance-spike) footprint of an obfuscated hack: within the partial-channel family, the wall is a
+cliff iff the footprint is second order; a first-order (mean-shift) tell gives a smooth, thresholdless
+$\mathrm{erf}$ curve (Fig.~\ref{fig:baselines}), and reward-model over-optimization is a smooth
+generalization error outside the family. Heavy-tailed activations blind the naive covariance estimator
+but a robust (spatial-sign) one restores the cliff (core Rem., simulation-backed)---a prescription for
+the meter under non-Gaussian traces.
+
+
+\begin{center}
+\fbox{\begin{minipage}{0.94\linewidth}
+\textbf{Design principles for robust monitors.} The analysis is prescriptive, not fatalistic---it
+says how to keep the wall high (all four levers are theorems in the core~\cite{core}).
+\begin{itemize}\setlength{\itemsep}{1pt}
+\item \emph{Aim at the reward structure.} The footprint lives where reward is collected; a monitor that
+resolves the (public) task subspace measures it directly (core Prop.~8). Aiming beats any fixed generic
+probe---and raw bandwidth without aim only inflates the noise floor (core Rem.\ on $\sqrt\alpha$).
+\item \emph{Match resolution to task rank.} Keep $\alpha d\ge K_{\mathrm{pool}}$ so the task subspace
+fits the budget; below that, the covering game leaves gaps for the hider.
+\item \emph{Spend the data budget.} Wall height scales as $1/\sqrt{n}$: more labeled traces per
+dimension drive $V^\star\to0$ (core simulations).
+\item \emph{Use second-order (covariance) tests.} The sharp wall is a covariance-spike phenomenon; a
+mean/linear classifier is smooth and misses the regime (Fig.~\ref{fig:baselines}); under heavy-tailed
+traces use a robust (spatial-sign) second-order statistic (core Rem.).
+\item \emph{Read the wall; do not wait for the cliff.} The Meter (\S\ref{sec:meter}) estimates
+$\hat\rho^\star$/$V^\star$ and the distance to them from trace statistics---AUC gives no warning before
+the collapse.
+\end{itemize}
+\end{minipage}}
+\end{center}
+
+\section{Stage-A numerical validation}\label{sec:numerics}
+We confirm the core's predictions~\cite{core} in a CoT-flavored toy and then build the empirical
+bridge to real chain-of-thought. The monitor estimates $\hat u$ as the top eigenvector of the sample
+covariance of $n$ projected hack traces, and scores a held-out \emph{session} of traces by their mean
+energy along $\hat u$; detection AUC is hack-vs-clean over such sessions. All numbers below are from a
+CPU \texttt{numpy}/\texttt{scipy} re-implementation of the Stage-A protocol ($\alpha=0.5$, $s=1.19$, so
+$\rho^\star=0.50$ at $n/d=1$); no values are hand-set. The wall, tax, and dichotomy panels reproduce
+the core's Figs.\ in monitoring notation; the surrogate and token panels are this paper's
+CoT-specific contribution.
+
+\begin{figure}[h]\centering
+\includegraphics[width=\linewidth]{phase_transition.png}
+\caption{\textbf{Monitoring wall (Stage A).} (a) Detection AUC vs optimization pressure
+$\rho$; the collapse at $\rho^\star{=}0.50$ (theory, dashed) sharpens with dimension
+$d\in\{100,300,900\}$ (evidence of a true transition): AUC falls from $0.985$ near
+$\rho{=}0.1$ to $0.53$ by $\rho{=}0.8$. (b) A weaker monitor (smaller $n/d$) is blinded at
+lower $\rho$: $\rho^\star$ moves from $0.65$ ($n/d{=}2$) through $0.50$ ($n/d{=}1$) to $0.29$
+($n/d{=}0.5$), matching~\eqref{eq:rhostar} (dashed).}
+\label{fig:phase}
+\end{figure}
+
+\begin{figure}[h]\centering
+\includegraphics[width=\linewidth]{tax_divergence.png}
+\caption{\textbf{Monitorability-tax divergence (Stage A).} The retained visible energy
+$T=1-\rho_{\max}$ needed to keep AUC$\ge\tau{=}0.72$ tracks the theoretical floor
+$\sqrt{\alpha/(n/d)}/s^2$ (dashed) from above and diverges as the monitor weakens / the
+capability gap $1/\sqrt{n/d}$ grows (measured tax rises from $0.43$ at a strong monitor to
+$0.87$ at a weak one).}
+\label{fig:tax}
+\end{figure}
+
+Both core claims hold on the toy channel: the wall location matches the closed
+form~\eqref{eq:rhostar} and sharpens with $d$; the tax tracks the floor of \S\ref{sec:results} and
+diverges linearly in the capability gap. These are the true sources of Figures~1--2.
+
+\paragraph{Finite-size correction.} The wall is a large-$d$ statement; at finite $d$ the BBP
+transition is smeared. The top sample eigenvalue fluctuates around the edge at the Tracy--Widom
+rate $d^{-2/3}$, which translates through the eigenvalue map into a $\rho$-window of width
+$\Delta\rho\asymp c\,d^{-1/3}/s^2$ around $\rho^\star$. Empirically the transition (AUC $0.9\to0.55$)
+occupies $[0.29,0.57]$ at $d\in\{600,900\}$ and narrows with $d$ (shaded in Fig.~\ref{fig:phase}a). Two
+consequences: the Meter reports $\hat\rho^\star$ with a \emph{band}, not a point (its width is this
+finite-$d$ correction plus estimation noise); and, because the window shrinks as $d^{-1/3}$, a
+larger trace space makes the wall an operationally \emph{sharper} cliff---the opposite of the usual
+intuition that high dimension blurs thresholds. The band should not be read as uncertainty about
+\emph{whether} the wall exists, only about \emph{where}, to within $O(d^{-1/3})$.
+
+\paragraph{Baselines: the wall is mechanism-specific.} To show the sharpness is a property of the
+\emph{hack model} and not of our detector, Fig.~\ref{fig:baselines} sweeps the same hidden fraction $\rho$ under three
+monitors at matched blatancy: our covariance-spike hack read by the BBP detector, and a first-order
+\emph{mean-shift} hack read by an LDA detector and by a calibrated linear classifier. Only the
+covariance case has a wall---AUC falls to chance at $\hat\rho^\star$; the mean-shift detectors
+decline \emph{smoothly} and stay above chance for every $\rho<1$ (an $\mathrm{erf}$ curve, no
+threshold). A classifier is only as sharp as its features: on first-order (mean) features it tracks
+LDA and is thresholdless; the sharp wall appears precisely because obfuscated hacking is a
+\emph{second-order} (covariance) signature. This is the simulated counterpart of the discussion in
+\S\ref{sec:related}.
+
+\begin{figure}[h]\centering
+\includegraphics[width=0.62\linewidth]{baselines.png}
+\caption{\textbf{The wall is specific to the covariance-spike (obfuscated) hack.} Detection AUC vs
+hidden fraction $\rho$ at matched blatancy: the covariance-spike hack with a BBP detector (red)
+falls to chance at $\hat\rho^\star{=}0.50$; a mean-shift hack read by an LDA detector (blue) or a
+calibrated linear classifier (green) declines smoothly and stays detectable for all $\rho<1$. The
+threshold is a feature of the second-order mechanism, not of the detector.}
+\label{fig:baselines}
+\end{figure}
+
+Figure~\ref{fig:twowalls} seals the coincidence of Prop.~\ref{prop:selfwall} and Prop.~\ref{prop:selfwall}. Plotted
+against the single signal-to-threshold ratio $\beta/\sqrt\gamma$, the estimation order parameter
+(recovery overlap) departs from zero, and the detection order parameter (the likelihood-ratio
+second moment $\E_0[L_n^2]$) diverges, at \emph{the same} point $\beta=\sqrt\gamma$. The wall that
+blinds our estimator and the wall past which \emph{no} test is consistent are one and the same;
+both closed forms are matched by simulation.
+
+\begin{figure}[h]\centering
+\includegraphics[width=\linewidth]{two_walls.png}
+\caption{\textbf{One wall, two order parameters.} Against $\beta/\sqrt\gamma$ (with $\gamma{=}1$):
+(a) the estimation wall---recovery overlap $\langle\hat u,u\rangle^2$ is zero for
+$\beta<\sqrt\gamma$ and departs from zero exactly at the threshold (Prop.~\ref{prop:selfwall}); (b) the
+detection wall---the likelihood-ratio second moment $\E_0[L_n^2]=(1-\beta^2/\gamma)^{-1/2}$ is
+finite in the contiguous (undetectable) regime and diverges at the \emph{same} threshold
+(Prop.~\ref{prop:selfwall}). Markers are simulation; curves are the closed forms. The estimation
+and detection thresholds coincide, so ``no estimator recovers the hack'' and ``no test detects it''
+are the same event.}
+\label{fig:twowalls}
+\end{figure}
+
+\paragraph{Stage A.5: emergent hiding and tax calibration (surrogate).}
+Stage~A imposes $\rho$; the first test that the channel picture survives \emph{training} is to let
+$\rho$ emerge. We train a routing policy by gradient ascent to maximize an evasion reward minus a
+competence cost of hiding, against an empirical probe monitor (the Stage-A estimator on $n$
+samples); as monitor pressure $\lambda$ rises, the policy \emph{learns} to route the variance spike
+into the null channel, so $\rho$ emerges rather than being set. (This is a controlled surrogate:
+the policy is a continuous router, not a token-level transformer, which is Stage~B.) Two findings
+(Fig.~\ref{fig:surrogate}). \emph{(i) The wall predicts the collapse on a trained policy.} As $\lambda$ increases the
+emergent $\rho$ sweeps across $\hat\rho^\star$, and the empirical detection AUC collapses at
+a finite-$d$ transition window $[0.29,0.57]$ that brackets the predicted $\hat\rho^\star=0.50$ (mean$\pm$sd over $24$ seeds; the window narrows as $d^{-1/3}$); gradient training in $\R^{d}$ reaches the
+same optimum as the exact argmax, with bistability precisely at the wall---the policy jumps across
+rather than lingering, echoing the cliff of Prop.~\ref{prop:selfwall}. \emph{(ii) The tax slope.}
+Fixing the hack value $B$ and tracing achieved reward $B(1-D_{\mathrm{emp}})$ against retained
+visible energy $V=s^2(1-\rho)$ yields a finite marginal slope $\kappa=|dR/dV|=1.9\pm1.2$ that
+\emph{peaks at the wall}, consistent with the criticality of \S\ref{sec:results}. The slope's
+value is task-specific; what transfers is the structure of \S\ref{sec:results}---a finite slope
+times the diverging energy floor gives a tax that diverges as $n/d\to0$. Calibrating the slope on
+real CoT is Stage~B.
+
+\begin{figure}[h]\centering
+\includegraphics[width=\linewidth]{stage_a5.png}
+\caption{\textbf{Stage A.5 (surrogate): emergence and calibration.} (a) A routing policy trained
+under monitor pressure $\lambda$ (color) develops \emph{emergent} hiding $\rho$; the empirical
+monitor AUC collapses as the trained $\rho$ crosses the predicted wall $\hat\rho^\star{=}0.50$
+(dashed); the shaded finite-$d$ window $[0.29,0.57]$ (mean$\pm$sd, $24$ seeds) brackets it. (b) Monitorability tax: achieved reward (mean$\pm$sd) vs retained
+visible energy $V=s^2(1-\rho)$; the marginal slope $|dR/dV|$ peaks at the wall
+$V=\sqrt{\alpha/(n/d)}$, calibrating the slope $\kappa$ of \S\ref{sec:results}(b) ($1.9\pm1.2$).}
+\label{fig:surrogate}
+\end{figure}
+
+\paragraph{Token-transformer confirmation (covariance-spike, RL).}
+To test that the picture survives discreteness and noisy RL, we replace the continuous router with
+a genuine single-layer causal self-attention transformer (numpy, gradient-checked backprop) that
+emits a short discrete CoT; the CoT's readout direction $w$ is the injected spike direction, the
+spike magnitude $s^2$ is fixed (so the SNR is controlled), and the policy is trained by REINFORCE
+to point $w$ at a mostly-visible value direction $v$ while a monitor penalizes the visible spike
+(pressure $\lambda$). We read Fig.~\ref{fig:token} \emph{qualitatively}: it asks whether the mechanism survives
+discreteness and RL noise, not whether it quantitatively pins the wall (that is the surrogate's and
+large-$d$'s job). Two robust findings: as $\lambda$ rises the emergent hiding $\rho$
+rises from $0.28$ to $0.51$ across $\hat\rho^\star=0.50$ (mean over $6$ seeds), with large near-wall variance---a bistable jump, the policy leaping
+across rather than sitting on it (the cliff again)---and the hack effectiveness $\langle
+w,v\rangle^2$ collapses from $0.39$ to $\approx0.12$ (seed means) as $\rho$ rises, the tax made concrete
+on real tokens. The \emph{sharp} AUC collapse is not resolved at the token model's small $d{=}40$
+(the transition sharpens with $d$, Fig.~\ref{fig:phase}a; the quantitative $\hat\rho^\star$ and tax slope are the
+surrogate's, Fig.~\ref{fig:surrogate}); what the transformer adds is that emergent hiding and the tax survive
+discreteness and RL noise---the bridge toward Stage~B.
+
+\begin{figure}[h]\centering
+\includegraphics[width=\linewidth]{token_stage_a5.png}
+\caption{\textbf{Token-transformer Stage A.5 (covariance spike, REINFORCE; $6$ seeds).} A
+single-layer self-attention policy emits a discrete CoT whose readout direction is the injected
+spike. (a) Emergent hiding $\rho$ vs monitor pressure $\lambda$ (mean$\pm$sd; grey dots are
+individual seeds; shaded range): $\rho$ rises from $0.28$ to $0.51$ across $\hat\rho^\star{=}0.50$, with
+large near-wall variance (bistable jump---the cliff). (b) The tax: hack effectiveness
+$\langle w,v\rangle^2$ collapses (from $0.39$ to $\approx0.12$) as the emergent $\rho$ rises past
+the wall. The sharp AUC collapse is not resolved at $d{=}40$ (cf.\ Fig.~\ref{fig:phase}a; the sharp
+$\hat\rho^\star$ and slope are the surrogate's, Fig.~\ref{fig:surrogate}).}
+\label{fig:token}
+\end{figure}
+
+\section{Instrument: the Monitorability Meter}\label{sec:meter}
+The theory helps an overseer only if it can be read \emph{before} the wall, from quantities
+cheaper than the thing it predicts. By the time detection AUC visibly falls the monitor is
+already past $\rho^\star$; a useful diagnostic must instead estimate the wall's \emph{location}
+and the current \emph{distance} to it from statistics a monitor already collects. The
+Monitorability Meter is that diagnostic---a framework-agnostic, monitor-side instrument mirroring
+a shadow-price meter. It exposes four calls: \texttt{null\_channel\_dim} (the hidable-subspace
+dimension $\knull$, a participation ratio of the residual covariance outside the monitor's
+operator), \texttt{wall\_estimate} (the wall location $\hat\rho^\star$ and current distance to it,
+with a resampling band), \texttt{monitorability\_price} (the marginal task loss per retained nat of
+$I(O;Z\mid X)$), and \texttt{StoppingRule} (``stop before the wall''). The Meter is an
+\emph{overseer-side} instrument: unlike the monitor (or adversary), which sees only the projected
+channel $P_{\mathrm{mon}}O$, the Meter is run offline with access to the \emph{full} trace embedding
+$O$---which it needs to separate $s^2$ from $\rho$ (from $P_{\mathrm{mon}}O$ alone only the visible
+spike $s^2(1-\rho)$ is identifiable, so the Meter would report $s^2(1-\rho)$ and a \emph{lower
+bound} on $\rho$). It first estimates the benign covariance $\widehat\Sigma_0$ from clean
+(non-hacking) traces and \emph{whitens}, $O\mapsto\widehat\Sigma_0^{-1/2}O$, so the inverse-BBP step
+sees isotropic noise; write $\widehat C=\tfrac1n\sum_i(\widehat\Sigma_0^{-1/2}O_i)(\cdot)^\top$ for
+the whitened sample covariance, top eigenpair $\hat\lambda,\hat u$, and $P_{\mathrm{mon}}$ of rank
+$\dmon$:
+\begin{align*}
+\hat\alpha&=\dmon/d, &
+\hat s^2&=\hat\beta:\ \hat\lambda=(1+\hat\beta)\big(1+\tfrac{d/n}{\hat\beta}\big)\ \text{(inverse BBP map)},\\
+\hat\rho&=\big\|(I-P_{\mathrm{mon}})\hat u\big\|^2, &
+\hat k_{\mathrm{null}}&=\frac{(\operatorname{tr}R)^2}{\operatorname{tr}(R^2)},\ R=(I-P_{\mathrm{mon}})(\widehat C-\hat\lambda\hat u\hat u^\top)(I-P_{\mathrm{mon}}),
+\end{align*}
+and $\hat\rho^\star=1-\sqrt{\hat\alpha/(n/d)}\,/\,\hat s^2$ by~\eqref{eq:rhostar}. Here $\hat s^2$
+is the total spike strength recovered by inverting the BBP eigenvalue map (valid once
+$\hat\lambda$ separates from the bulk), $\hat\rho$ its null fraction, and $\hat k_{\mathrm{null}}$
+the participation ratio of the residual covariance in the unresolved block. The load-bearing two
+routines are:
+
+{\small\begin{verbatim}
+estimate_channel(O, O_clean, P_mon, n):   # O: hack traces; O_clean: benign
+    Sigma0 = cov(O_clean)                 # benign (noise) covariance
+    Chat   = cov(Sigma0^(-1/2) @ O)       # WHITEN, then sample covariance
+    lam, u = top_eigenpair(Chat)          # top spike eigenpair
+    alpha  = rank(P_mon)/d
+    s2  = solve  lam = (1+s2)(1 + (d/n)/s2)    # inverse BBP map
+    rho = norm((I - P_mon) @ u)^2              # null fraction of spike
+    R   = (I-P_mon)(Chat - lam*outer(u,u))(I-P_mon)   # off-spike residual
+    k_null = trace(R)^2 / trace(R@R)           # participation ratio
+    return alpha, s2, rho, k_null, u
+
+wall_estimate(O, O_clean, P_mon, n):
+    alpha, s2, rho, k_null, u = estimate_channel(O, O_clean, P_mon, n)
+    rho_star = 1 - sqrt(alpha/(n/d))/s2   # Eq. (2)
+    band = bootstrap(resample O; recompute rho_star)   # width ~ d^-1/3 + noise
+    return rho_star, rho, band
+
+StoppingRule(state, delta):               # symptoms coincide (Prop. 4)
+    rho_star, rho_now, band = wall_estimate(state.O, state.O_clean,
+                                            state.P_mon, state.n)
+    price = monitorability_price(state.O, state.Z)      # lambda_mon
+    if (rho_star - rho_now) < delta  or  price > budget:
+        halt CoT-directed optimization    # stop before the wall
+\end{verbatim}}
+
+\noindent Each call needs a trace covariance and a labeled probe set that is small relative to
+model training but \emph{not} sub-dimensional: the spike and eigenvector estimates above are
+consistent only when the sample size $n$ is comparable to the effective dimension being
+resolved---the estimators live in the proportional regime $n/\dmon=\Theta(1)$ (indeed $\hat\rho^\star$
+depends on $n/d$), not $n\ll\dmon$. Given that, the Meter needs no white-box access to the model, so
+it attaches to any monitor---linear probe, LLM judge, or classifier---as a runtime guardrail rather
+than a post-hoc audit.
+
+\begin{table}[h]\centering\small
+\begin{tabular}{@{}l p{4.4cm} p{5.6cm}@{}}
+\toprule
+\multicolumn{1}{c}{\textbf{estimator}} & \multicolumn{1}{c}{\textbf{assumption}} & \multicolumn{1}{c}{\textbf{failure mode}} \\ \midrule
+$\hat s^2$ (inverse BBP) & top eigenvalue separated from the bulk; single dominant spike &
+below the wall $\hat\lambda$ re-enters the bulk, so $\hat s^2$ is undefined---the Meter must extrapolate from the last super-critical read \\
+$\hat\alpha=\dmon/d$ & fixed, known monitor operator & adaptive monitor re-aims $\Smon$ ($\alpha$ time-varying); use the current $\Smon$ per round \\
+$\hat\rho=\|(I{-}P_{\mathrm{mon}})\hat u\|^2$ & top eigenvector \emph{is} the hack direction & multi-spike (rank-$r$) hacks or a noise eigenvector dominating near the wall bias $\hat\rho$; track top-$r$ \\
+$\hat k_{\mathrm{null}}$ (participation ratio) & residual covariance well approximated after spike removal & heavy-tailed / structured trace noise inflates the ratio \\
+$\hat\rho^\star$ & proportional Gaussian regime; \emph{second-order} (covariance) hack & mean-shift hacks give a smooth curve (no sharp $\rho^\star$); $n\ll d$ breaks the estimate \\
+\bottomrule
+\end{tabular}
+\caption{Estimator assumptions and failure modes for the Monitorability Meter. The first and last
+rows are the operative caveats: the wall estimate is a super-critical extrapolation, and the
+sharpness presumes an obfuscated (covariance-spike) hack in the proportional regime. \emph{Rule of
+thumb}: use $n/\dmon\gtrsim1$ (the proportional regime the estimators live in); report
+$\hat\rho^\star$ as a bootstrap band, not a point, with width $\sim O(d^{-1/3})$ (finite-size) plus
+estimation noise, widening as $n/\dmon\downarrow1$.}
+\end{table}
+
+\paragraph{Linear probes vs.\ LLM judges.} The operator $P_{\mathrm{mon}}$ is \emph{exact} for a
+linear monitor---a probe or classifier whose readout is a fixed rank-$\dmon$ projection of the
+trace features---and the estimators above are then literal. An \emph{LLM judge} is nonlinear: there
+is no explicit $P_{\mathrm{mon}}$, and the framework applies to its \emph{local linearization}. The
+effective resolved operator is the judge's sensitivity map---the span of trace perturbations that
+change its verdict, i.e.\ the row space of its Jacobian at the operating point---and $\alpha$,
+$\knull$, $\rho$ become \emph{effective} quantities read off that map. The sharp wall is then a
+first-order statement about the linearized channel, valid where the judge is locally linear over the
+relevant perturbation scale; strong nonlinearity (a judge that reads a genuinely nonlinear feature
+of the trace) adds higher-order terms that can move the effective edge, and is outside the current
+analysis. Table~\ref{tab:nonlin} records how each estimator is read in the two cases.
+
+\begin{table}[h]\centering\small
+\begin{tabular}{@{}l p{4.7cm} p{5.4cm}@{}}
+\toprule
+\multicolumn{1}{c}{\textbf{quantity}} & \multicolumn{1}{c}{\textbf{linear probe (exact)}} & \multicolumn{1}{c}{\textbf{LLM judge (effective, linearized)}} \\ \midrule
+$P_{\mathrm{mon}}$ & fixed rank-$\dmon$ readout projection & row space of the judge's Jacobian at the operating point \\
+$\alpha=\dmon/d$ & probe rank over $d$ & effective rank of the Jacobian over $d$ \\
+$\hat s^2,\hat\rho$ & inverse-BBP on the whitened covariance & same, on locally-linearized trace features; higher-order terms dropped \\
+$\hat\rho^\star$ & exact threshold & first-order threshold; valid in the locally linear regime \\
+\bottomrule
+\end{tabular}
+\caption{Reading the Meter's estimators for a linear probe (exact) versus an LLM judge (an effective,
+linearized resolution). For the judge, calibrate $P_{\mathrm{mon}}$ empirically---perturb the trace
+and record which directions flip the verdict.}
+\label{tab:nonlin}
+\end{table}
+
+\paragraph{Operational requirements (not optional).} The Meter's estimates are only valid when its
+preconditions hold; each is a genuine requirement, not a convenience.
+\begin{itemize}\setlength{\itemsep}{1pt}
+\item \emph{Full trace embeddings.} Separating $s^2$ from $\rho$ needs the full trace $O$, not just
+$P_{\mathrm{mon}}O$; from the projection alone only the visible spike $s^2(1-\rho)$ is identifiable.
+\item \emph{Clean covariance and whitening.} The inverse-BBP step assumes isotropic noise; with
+anisotropic benign covariance the raw top eigenvalue is dominated by the noise, so
+$\widehat\Sigma_0$ must be estimated from clean traces and the trace whitened first
+(Fig.~\ref{fig:stress}a).
+\item \emph{Super-critical spike.} $\hat s^2$ is read by inverting the BBP map, which requires the
+top eigenvalue to have separated from the bulk; below the wall the Meter must extrapolate from the
+last super-critical read.
+\item \emph{Proportional sample size.} The estimators live in $n/\dmon=\Theta(1)$; with $n\ll\dmon$
+the eigenvector estimate is inconsistent and $\hat\rho^\star$ is unreliable.
+\item \emph{Rank-aware $\hat\rho$.} A single top eigenvector misreads a multi-spike hack; track the
+top-$r$ eigenvectors (Fig.~\ref{fig:stress}b).
+\end{itemize}
+Figure~\ref{fig:stress} stress-tests these: whitening is required under anisotropic noise, a top-$r$
+estimator under multi-spike hacks, and---for a nonlinear (quadratic) judge---the effective
+$P_{\mathrm{mon}}$ recovered by perturbation matches the true resolved subspace (overlap $\approx1$),
+so the Meter transfers to nonlinear monitors through the sensitivity-subspace reading of
+Table~\ref{tab:nonlin}.
+
+\begin{figure}[h]\centering
+\includegraphics[width=\linewidth]{meter_stress.png}
+\caption{\textbf{Meter stress tests.} (a) Anisotropic benign noise: the raw $\hat s^2$ error grows
+with the noise condition number, while whitening keeps it flat---whitening is required, not optional.
+(b) Multi-spike hack (spread null fractions): the top-$1$ estimator is biased; the top-$r$ estimator
+tracks the mean $\rho$. (c) Nonlinear (quadratic) judge: the empirical sensitivity subspace recovers
+the true resolved subspace (overlap $\approx1$) across nonlinearity strengths, validating the
+effective-$P_{\mathrm{mon}}$ reading for LLM judges.}
+\label{fig:stress}
+\end{figure}
+
+\section{Stage plan (evidence hierarchy)}\label{sec:stages}
+The claim is validated in three stages, each buying a different kind of confidence and each
+carrying a condition that would falsify it.
+
+\emph{Stage~A (done).} The closed-form BBP wall and the tax floor, confirmed on the toy channel:
+detection AUC collapses across $\rho^\star$ and \emph{sharpens} with dimension---the signature of
+a true transition rather than a finite-size slope---and the tax tracks $\sqrt{\alpha/(n/d)}/s^2$
+and grows in the capability gap (Figs.~\ref{fig:phase} and~\ref{fig:tax}). This isolates the mechanism; it does not yet show
+that this mechanism is the one operating inside a language model.
+
+\emph{Stage~A.5 (surrogate done; \S\ref{sec:numerics}, Fig.~\ref{fig:surrogate}).} A tiny transformer
+emitting a short CoT, watched by a \emph{probe} monitor (the Stage-A eigenvector estimator on $n$
+samples)---\emph{not} a real LLM judge, which belongs to Stage~B. We apply optimization pressure to
+the CoT and ask (i) whether the trace--intent information $I(O;Z\mid X)$ collapses at the
+$\hat\rho^\star$ predicted from the channel's estimated $(\alpha,n/d,s)$, and (ii) whether the
+Meter's stopping rule trips \emph{before} the collapse. A first, non-token surrogate already confirms
+(i)---emergent $\rho$ crosses the wall at the predicted location---and calibrates the tax slope; a
+gradient-checked token transformer trained by REINFORCE reproduces the emergent hiding and the tax on
+discrete CoTs (Fig.~\ref{fig:token}). What remains for Stage~B is the sharp large-$d$ collapse and,
+crucially, a \emph{real LLM monitor}, which no part of the work so far has used. This is the stage
+that pins the one free slope in \S\ref{sec:results}.
+
+\emph{Stage~B (specified; GPU).} A real reasoning model under a real LLM CoT monitor in an
+agentic coding environment (unit-test hacking). Two conditions make the theory refutable at
+scale: the wall must appear where $\knull/(n/d)$ predicts---not at an arbitrary, fitted
+pressure---and the tax must \emph{scale} with the capability gap rather than saturating. If either
+fails, the transition is not the phenomenon governing real CoT monitoring, and we would report
+that.
+
+\section{Limitations and novelty boundary}\label{sec:limits}
+\paragraph{Scope of the model.} The results describe a stylized Gaussian channel; the map from
+``CoT monitorability'' to $(\alpha,n/d,s,\rho)$ is a modeling posit to be made operational
+(Stage~A.5/B). Two assumptions carry the sharpness and bound the scope. First, the hack signature
+is taken to be purely \emph{second order} (a covariance spike); to the extent a real hack retains
+a first-order (mean) component, the transition softens from a cliff toward a slope and
+$\rho^\star$ becomes the location of steepest descent rather than a true zero. The claim is thus
+sharpest for exactly the \emph{obfuscated} hacks that motivate the problem and weakest for clumsy
+ones---the useful direction to err. Second, the tax's task-loss slope (retained visible energy
+$\mapsto$ forgone reward) is not derived; only its \emph{divergence} is, and the slope is the one
+quantity Stage~A.5 calibrates.
+
+\paragraph{The load-bearing constant.} The value of the result rests on the sharp constant of
+Prop.~\ref{prop:selfwall}. We derived it in closed form and matched it to simulation
+(\S\ref{sec:results}); the residual risk is empirical, not analytical---whether a real CoT channel
+sits in the proportional regime where the $\beta_{\mathrm{sig}}=0$ threshold bites. If it does
+not, the result degrades gracefully toward restating a known existence bound, which is why we
+mark the boundary rather than paper over it.
+
+\paragraph{Adaptive monitors and co-evolution.} We fix the monitor's subspace $\Smon$; a real
+overseer may \emph{re-aim} it during training, projecting onto the directions where the hack
+currently lives. This turns the wall into a moving target and the interaction into a dynamic game.
+Two remarks bound the effect. First, our result is a per-round statement: at any fixed $\Smon$ the
+wall holds, so an adaptive monitor buys time, not immunity---each re-aim resets $\rho$ but the
+model re-hides in the new null channel. Second, re-aiming is not free: enlarging the resolved
+subspace raises $\alpha$ but, at a fixed labeling budget, lowers the per-direction data budget
+$n/d$, which \emph{lowers} $\rho^\star$ (Fig.~\ref{fig:phase}b)---so a monitor that chases the hack across more
+directions blinds itself faster on each. The tax argument therefore recurses, and the equilibrium
+of the full model-vs-adaptive-monitor game is the natural next object (a Stackelberg version of
+Prop.~\ref{prop:selfwall}); \S\ref{sec:results} settles the case where the monitor can aim at the public
+task subspace (\S\ref{sec:results}: the wall collapses) and leaves the covering regime open.
+
+\paragraph{Multi-spike (low-rank) hacks.} We model a rank-one hack. A rank-$r$ hack injects spikes
+$s_1^2\ge\dots\ge s_r^2$ along orthogonal directions, each with its own null fraction $\rho_i$. The
+monitor recovers direction $i$ iff its visible spike clears the edge, $s_i^2(1-\rho_i)>\sqrt\gamma$,
+so there is a \emph{per-spike} wall $\rho_i^\star=1-\sqrt\gamma/s_i^2$; the hack is fully hidden once
+every spike is sub-critical, and the tax sums the per-spike energy floors. A low-rank hack can thus
+keep a few blatant components visible (decoys) while sliding the subtle ones ($s_i^2$ near
+$\sqrt\gamma$) below the edge---the multi-spike analogue of obfuscation, and a setting where the
+monitor's finite budget $n/d$ must be shared across $r$ directions. The rank-$r$ threshold and the
+optimal decoy allocation are a clean extension.
+
+\paragraph{What we do and do not claim.} We claim precisely three things: a \emph{sharp threshold}
+$\rho^\star$, a \emph{diverging energy floor} (and, under a positive-slope assumption, a diverging
+task tax), and a \emph{geometric pricing unit} for legibility. We do \emph{not} claim that
+obfuscation is possible (known~\cite{dewitt,motwani}), that finite oversight distorts objectives
+(known~\cite{survey}), or a better monitor. The contribution is orthogonal to all three:
+\emph{when} optimization is forced across, and \emph{what} staying legible costs.
+
+\section{Conclusion}
+Monitoring fails as a cliff, not a slope. Past a geometry-set pressure $\rho^\star$ the monitor's
+recovery overlap with the hack vanishes and no test detects it consistently, the collapse sharpens
+as the system grows, and the required visible-energy floor for staying detectable \emph{grows}
+without bound in absolute terms---until, once it exceeds the total budget, keeping the model
+detectable at target level is infeasible and the monitor is defeated outright. The operational reading is uncomfortable: a monitor reporting healthy AUC is
+not holding a safety margin it can spend down, but standing next to a cliff whose edge is invisible
+from its own readings. This is what the Monitorability Meter is for---estimating the edge's
+\emph{location} and the current distance to it, so an overseer can stop before the wall rather than
+discover it afterward.
+
+The result is sharpest for exactly the obfuscated hacks that motivate the problem, and its
+real-CoT instantiation---does a language-model trace sit in the regime where the threshold
+bites?---is the open empirical question Stages~A.5 and~B are built to answer. Finally, the same
+machine ports to the sibling games where a capable optimizer meets an imperfect check: policy
+versus reward model (overoptimization onset) and policy versus verifier (coverage). The latter is
+worked out in the companion \emph{Coverage Wall} paper, which proves the isomorphism explicitly (its
+Lemma~1: coverage $\gamma\leftrightarrow$ resolution $\alpha$, verifier power $\kappa\leftrightarrow$
+data budget $n/d$, edge $\sqrt{\gamma/\kappa}\leftrightarrow\sqrt{\dmon/n}$) and re-verifies the wall,
+converse, game value, and adaptive collapse in coverage notation. The monitoring
+wall is the cleanest instance; together they suggest a unified program of \emph{sharp thresholds in
+reward hacking}---a critical pressure, a diverging price, and a null channel the optimizer learns to
+hide in---whose shared object is exactly that isomorphism, and whose one remaining regime is the
+covering game (a task richer than the checker's resolution, the RLVR default), which the core
+characterizes as a slope. Making the hiding
+spectrum and the monitor's aim endogenous (\S\ref{sec:results}) turns the threshold into a game value---a
+critical capability $V^\star$---and sharpens the safety reading: the wall protects the hider only
+against a monitor that
+cannot aim or is starved of data; an \emph{adaptive} monitor that aims at a \emph{public, coverable}
+task subspace and measures its total variance collapses the wall (\S\ref{sec:results}, B1--B4). What remains open is the
+one regime where aiming does not suffice---a task subspace larger than the monitor's
+budget---whose covering-game value is the program's central conjecture.
+
+\appendix
+\section{Reproducibility}\label{app:repro}
+All experiments are CPU-only (\texttt{numpy}\,2.4 / \texttt{scipy}\,1.17). \textbf{Code.} Every
+figure is generated by a short self-contained script; these, together with a reference
+\texttt{numpy} implementation of the Monitorability Meter (the estimators of \S\ref{sec:meter}:
+\texttt{null\_channel\_dim}, \texttt{wall\_estimate}, \texttt{monitorability\_price},
+\texttt{StoppingRule}) and the gradient-checked tiny transformer, are provided with the submission
+and will be released on publication; the Meter is a research reference implementation, not a
+hardened library, and
+carries the failure modes tabulated in \S\ref{sec:meter}. Detection AUC everywhere uses the same \emph{session
+detector}: the monitor estimates $\hat u$ as the top eigenvector of the sample covariance of $n$
+projected hack traces, then scores held-out sessions of $b$ traces by mean energy along $\hat u$ and
+reports AUC (hack vs.\ clean) over sessions.
+
+\emph{Toy channel (Figs.~\ref{fig:phase}--\ref{fig:twowalls}).} $\alpha=0.5$, $s=1.19$ ($s^2=1.414$), so $\rho^\star=0.50$ at
+$n/d=1$. Fig.~\ref{fig:phase}a: $d\in\{100,300,900\}$, $n=d$; session $b=120$, $100$ sessions, $2$ trials. Fig.~\ref{fig:phase}b:
+$n/d\in\{0.5,1,2\}$. Fig.~\ref{fig:tax}: tax $=1-\rho_{\max}$ at $\tau=0.72$ vs.\ floor $\sqrt{\alpha/(n/d)}/s^2$.
+Fig.~\ref{fig:twowalls}b (converse): $\E_0[L_n^2]=\E_{u,u'}(1-\beta^2\omega^2)^{-n/2}$ ($\omega=\langle\tilde u,\tilde u'\rangle$) Monte-Carlo, $p=6000$,
+$4{\times}10^5$ pairs, matching $(1-\beta^2/\gamma)^{-1/2}$ to $3$--$4$ digits below the wall.
+Scripts: \texttt{fig1.py, fig2.py, fig3\_two\_walls.py, cgmt\_check.py, converse\_check.py}.
+
+\emph{Effective rank (\S\ref{sec:results}).} With a benign covariance of stable rank
+$r_{\mathrm{eff}}$ (whitened within its range), the measured detection wall tracks
+$\sqrt{r_{\mathrm{eff}}/n}$: at $\dmon{=}300$, $n{=}400$, generic Haar spike, the wall rises with
+$r_{\mathrm{eff}}\in\{50,100,200,300\}$ and meets $\sqrt{\dmon/n}$ at $r_{\mathrm{eff}}{=}\dmon$
+(monotone in $r_{\mathrm{eff}}$, a finite-$n$ offset above the exact edge from the AUC$=0.75$
+crossing). Script: \texttt{reff\_check.py}.
+
+\emph{Continuous surrogate (Fig.~\ref{fig:surrogate}).} A routing policy $w\in\R^{d}$ is trained (gradient ascent;
+verified against the exact arg-max) to maximize an evasion reward minus a quadratic competence cost
+of hiding; $\rho=\|P_{\mathrm{mon}}^\perp w\|^2$ emerges. AUC$(\rho)$ from the session detector at
+$d_{\mathrm{eval}}=600$; bands are mean$\pm$sd over $24$ seeds; the finite-$d$ transition window
+(AUC $0.9\!\to\!0.55$) is $[0.29,0.57]$, bracketing $\rho^\star$ and narrowing as $d^{-1/3}$. Tax
+slope $\kappa=1.9\pm1.2$ (reward $=2(1-\text{AUC})$, slope at the wall over seeds). Script:
+\texttt{fig4\_ci.py}.
+
+\emph{Token transformer (Fig.~\ref{fig:token}).} A single-layer causal self-attention policy (\texttt{numpy},
+manual backprop, gradient check max rel.\ err.\ $4{\times}10^{-7}$): $d_{\mathrm{model}}=16$,
+vocabulary $48$, CoT length $8$. Trained by REINFORCE (Adam, lr $0.015$, batch $64$, running-mean
+baseline, $\sim\!900$ episodes) from a $\lambda{=}0$ pre-trained init. The CoT readout direction
+$w=\mathrm{normalize}(\sum_t E_{\mathrm{out}}[\text{tok}_t])$ is the injected spike; the spike
+magnitude $s^2=1.414$ is fixed (controlled SNR); reward $=\langle w,v\rangle^2-\lambda\,
+\sigma(\kappa(s^2\|P_{\mathrm{mon}}w\|^2-\text{edge}))$ with $v$ mostly visible; monitor budget
+$n=d=40$. Points are mean$\pm$sd over $3$ seeds; the small $d{=}40$ leaves the AUC collapse
+finite-size-broad (cf.\ Fig.~\ref{fig:phase}a). Scripts: \texttt{tt\_model.py, tt\_spike.py, tt\_ci.py}.
+
+\emph{Two-time-scale dynamics (\S\ref{sec:results}, core simulations).} Slow policy
+$\rho_k$ / fast monitor $\hat D_k$ stochastic approximation, $a_k=0.03/(1{+}k/400)^{0.6}$,
+$b_k=0.30/(1{+}k/400)^{0.51}$ ($a_k/b_k\to0$); fast variable tracks the BBP detectability
+$D^\star(\rho)$ with estimation noise $1/\sqrt n$ ($n{=}200$); slow variable ascends
+$J=\lambda(1{-}D^\star)-0.9\rho$ with SGD noise $0.15$; $16$ seeds. The converged $\rho_\infty$ meets
+$\rho^\star{=}0.50$ once past the barrier; the metastable band is where the hidden basin is the
+global optimum but the SA is still trapped visible. Script: \texttt{twotimescale.py}.
+
+\section{Self-contained core: the wall and converse, in monitoring notation}\label{app:selfcontained}
+For self-containedness we restate the two load-bearing results---the wall and its converse---and sketch
+their proof in monitoring notation, so this paper's central claim stands without the core paper. (It is
+the same BBP/CGMT argument; full proofs and the game/saturation/adaptive results are in~\cite{core}.)
+
+\paragraph{Setup, recalled.} An obfuscated hack injects a variance spike of energy $s^2$ along a unit
+direction $u\in\R^d$; the monitor resolves an $\dmon=\alpha d$-dimensional subspace and estimates $u$
+from $n$ traces. Under pressure $\rho$ it routes a fraction $\rho$ into the null channel, leaving a
+visible spike $\beta=s^2(1-\rho)$; write $\gamma=\dmon/n$.
+
+\begin{proposition}[Monitoring wall + converse, self-contained]\label{prop:selfwall}
+In the proportional regime $\dmon,n\to\infty$ with $\dmon/n\to\gamma$: \emph{(i)} the recovery overlap
+is $\langle\hat u,u\rangle^2\to\big[(1-\gamma/\beta^2)/(1+\gamma/\beta)\big]_+$, positive iff
+$\beta>\sqrt\gamma$, i.e.\ zero iff $\rho\ge\rho^\star=[1-\sqrt\gamma/s^2]_0^1$; \emph{(ii)} for
+$\beta<\sqrt\gamma$ the clean and hacked trace laws are contiguous, the likelihood-ratio second moment
+$\E_0[L_n^2]\to(1-\beta^2/\gamma)^{-1/2}<\infty$, so no test of the $n$ projected traces detects the
+hack consistently. The two thresholds coincide.
+\end{proposition}
+
+\noindent\emph{Proof sketch.} The projected traces have population covariance
+$I_{\dmon}+\beta\,\tilde u\tilde u^\top$ ($\tilde u$ the unit visible component). By BBP the top sample
+eigenvalue leaves the Marchenko--Pastur bulk iff $\beta>\sqrt\gamma$, with eigenvector overlap as in
+(i); below the edge the overlap is $0$ and any statistic built from $\hat u$ is asymptotically
+uninformative. Since $\beta=s^2(1-\rho)$, the edge is crossed at $\rho^\star$. For (ii), the single-spike
+Le~Cam second moment with a uniform prior on $u$ is $(1-\beta^2/\gamma)^{-1/2}$, finite iff
+$\beta<\sqrt\gamma$; a bounded second moment gives contiguity, hence no consistent test. The sharp
+constant follows from the CGMT fixed point $\Phi_{\mathrm{AO}}(\mu)=\sqrt{\gamma(1-\mu^2)}+\sqrt{1+\beta\mu^2}$,
+whose $\mu=0$/nontrivial-branch bifurcation at $\beta=\sqrt\gamma$ reproduces both (i) and the
+Marchenko--Pastur edge~\cite{core}. \hfill$\square$
+
+\begin{thebibliography}{99}
+\bibitem{core} \emph{The Wall, the Game, and the Cliff Criterion: sharp thresholds for recovering a
+planted signal through a partial channel.} Companion theory paper (contains all proofs, the CGMT fixed
+point, the game value, saturation, adaptive collapse, and the cliff criterion).
+\bibitem{baker} B.~Baker et al. (OpenAI). \emph{Monitoring reasoning models for misbehavior and the
+risks of promoting obfuscation.} arXiv:2503.11926, 2025.
+\bibitem{korbak} T.~Korbak et al. \emph{Chain-of-thought monitorability: a new and fragile
+opportunity for AI safety.} arXiv:2507.11473, 2025.
+\bibitem{cotmi} \emph{Analyzing and improving CoT monitorability through information theory.}
+arXiv:2602.18297, 2026.
+\bibitem{spillover} \emph{Output supervision can obfuscate the chain of thought.} arXiv:2511.11584,
+2025.
+\bibitem{stegodt} \emph{Decision-theoretic steganography in LLM monitoring.} arXiv:2602.23163, 2026.
+\bibitem{motwani} S.~Motwani et al. \emph{Secret collusion among AI agents.} NeurIPS 2024,
+arXiv:2402.07510.
+\bibitem{dewitt} C.~Schroeder de~Witt, S.~Sokota, J.~Z.~Kolter, J.~Foerster, M.~Strouse.
+\emph{Perfectly secure steganography using minimum entropy coupling.} ICLR 2023, arXiv:2210.14889.
+\bibitem{survey} \emph{Reward hacking in the era of large models: mechanisms, emergent
+misalignment, challenges.} arXiv:2604.13602, 2026.
+\bibitem{bbp} J.~Baik, G.~Ben~Arous, S.~P\'ech\'e. \emph{Phase transition of the largest eigenvalue
+for nonnull complex sample covariance matrices.} Ann.\ Probab.\ 33(5):1643--1697, 2005.
+\bibitem{bgn} F.~Benaych-Georges, R.~R.~Nadakuditi. \emph{The eigenvalues and eigenvectors of
+finite, low-rank perturbations of large random matrices.} Adv.\ Math.\ 227(1):494--521, 2011.
+\bibitem{paul} D.~Paul. \emph{Asymptotics of sample eigenstructure for a large-dimensional spiked
+covariance model.} Statist.\ Sinica 17(4):1617--1642, 2007.
+\bibitem{cgmt} C.~Thrampoulidis, S.~Oymak, B.~Hassibi. \emph{Regularized linear regression: a
+precise analysis of the estimation error.} COLT, PMLR 40:1683--1709, 2015.
+\bibitem{lecam} L.~Le~Cam. \emph{Asymptotic Methods in Statistical Decision Theory.} Springer, 1986.
+\bibitem{omh2013} A.~Onatski, M.~J.~Moreira, M.~Hallin. \emph{Asymptotic power of sphericity tests
+for high-dimensional data.} Ann.\ Statist.\ 41(3):1204--1231, 2013.
+\bibitem{omh2014} A.~Onatski, M.~J.~Moreira, M.~Hallin. \emph{Signal detection in high dimension:
+the spiked rank-one case.} Ann.\ Statist.\ 42(1):225--254, 2014.
+\bibitem{pwbm} A.~Perry, A.~S.~Wein, A.~S.~Bandeira, A.~Moitra. \emph{Optimality and sub-optimality
+of PCA~I: spiked random matrix models.} Ann.\ Statist.\ 46(5):2416--2451, 2018.
+\end{thebibliography}
+
+\end{document}
